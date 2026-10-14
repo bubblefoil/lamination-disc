@@ -1,0 +1,500 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Lamination disc</title>
+<meta name="description" content="Parametric lamination disc generator: coil slots, alignment tabs and stack skew, exported as SVG or DXF for laser cutting.">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap">
+<style>
+  /* Light palette — the complete token set. Dark blocks below redefine only these. */
+  :root {
+    color-scheme: light dark;
+    --paper: #eef0f2;
+    --panel: #ffffff;
+    --field: #ffffff;
+    --ink: #172033;
+    --ink-2: #5b6474;
+    --line: #cfd5dd;
+    --cut: #0f1a2b;        /* preview stroke only; exports always use the literals */
+    --engrave: #d1291d;
+    --guide: #3b7bbf;
+    --warn: #b45309;
+    --accent: #0f1a2b;
+    --accent-ink: #ffffff;
+    --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #12161c;
+      --panel: #191f27;
+      --field: #10151b;
+      --ink: #e5eaf0;
+      --ink-2: #93a0b1;
+      --line: #2e3844;
+      --cut: #dde4ec;
+      --engrave: #ff6b5e;
+      --guide: #5b9fe0;
+      --warn: #f0a33c;
+      --accent: #e2e8f0;
+      --accent-ink: #131a22;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #12161c;
+    --panel: #191f27;
+    --field: #10151b;
+    --ink: #e5eaf0;
+    --ink-2: #93a0b1;
+    --line: #2e3844;
+    --cut: #dde4ec;
+    --engrave: #ff6b5e;
+    --guide: #5b9fe0;
+    --warn: #f0a33c;
+    --accent: #e2e8f0;
+    --accent-ink: #131a22;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  html, body { margin: 0; background: var(--paper); color: var(--ink);
+    font: 15px/1.45 "Avenir Next", "Segoe UI", Helvetica, Arial, sans-serif; }
+  body { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+  .app { display: grid; grid-template-columns: 1fr; min-height: 100%; }
+  .preview { display: flex; flex-direction: column; align-items: center; justify-content: center;
+    width: 100%; min-width: 0; padding: 16px 16px 10px; min-height: 55dvh; gap: 10px; }
+  /* The disc takes every pixel the readout leaves: the host absorbs the free
+     height, and the square viewBox letterboxes itself inside whichever of the
+     two axes runs out first. */
+  .svg-host { position: relative; flex: 1 1 auto; min-height: 0; width: 100%; }
+  .svg-host svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  .readout { margin: 0; color: var(--ink-2); font-family: var(--mono); font-size: 12px;
+    line-height: 1.7; font-variant-numeric: tabular-nums; text-align: center; max-width: 60ch; }
+  .readout b { color: var(--ink); font-weight: 600; }
+  .warn { color: var(--warn); font-size: 13px; text-align: center; margin: 0; min-height: 1.4em; }
+
+  .controls { background: var(--panel); border-top: 1px solid var(--line); padding: 20px 18px 28px; }
+  h1 { font-size: 20px; font-weight: 600; margin: 0 0 2px; letter-spacing: -0.01em; }
+  .sub { color: var(--ink-2); font-size: 13px; margin: 0 0 18px; }
+  fieldset { border: 0; padding: 0; margin: 0 0 18px; }
+  legend { font-weight: 600; font-size: 14px; padding: 0; margin-bottom: 8px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px; }
+  label.f { display: flex; flex-direction: column; gap: 3px; font-size: 12.5px; color: var(--ink-2); }
+  label.f input, label.f select { font: inherit; font-size: 15px; color: var(--ink); padding: 7px 9px;
+    border: 1px solid var(--line); border-radius: 6px; background: var(--field); width: 100%; }
+  label.f input { font-family: var(--mono); font-size: 14px; font-variant-numeric: tabular-nums; }
+  label.f input:focus, label.f select:focus { outline: 2px solid var(--guide); outline-offset: 1px; border-color: var(--guide); }
+  label.chk { display: flex; align-items: center; gap: 8px; font-size: 13.5px; margin-top: 8px; }
+  .plate { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; margin-top: 6px; }
+  .plate input[type=range] { width: 100%; accent-color: var(--guide); }
+  .plate output { font-family: var(--mono); font-variant-numeric: tabular-nums;
+    min-width: 4.5em; text-align: right; font-weight: 600; }
+  .actions { display: grid; gap: 8px; margin-top: 6px; }
+  button { font: inherit; font-weight: 600; padding: 11px 14px; border-radius: 8px; cursor: pointer;
+    border: 1px solid var(--accent); background: var(--accent); color: var(--accent-ink); }
+  button.secondary { background: var(--panel); color: var(--ink); border-color: var(--line); }
+  button.tiny { font-size: 12.5px; font-weight: 500; padding: 6px 10px; margin-top: 8px;
+    background: var(--panel); color: var(--ink); border-color: var(--line); }
+  button:focus-visible { outline: 2px solid var(--guide); outline-offset: 2px; }
+  .hint { font-size: 12.5px; color: var(--ink-2); margin: 10px 0 0; }
+  .status { font-size: 12.5px; color: var(--ink-2); margin: 8px 0 0; min-height: 1.4em; }
+
+  @media (min-width: 900px) {
+    .app { grid-template-columns: minmax(0, 1fr) 360px; height: 100%; }
+    .preview { min-height: 0; }   /* stretches to the grid row instead */
+    .controls { position: sticky; top: env(safe-area-inset-top, 0px); overflow: auto;
+      max-height: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+      border-top: 0; border-left: 1px solid var(--line); }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <section class="preview">
+    <div class="svg-host" id="svgHost" aria-label="Disc preview"></div>
+    <div class="readout" id="readout"></div>
+    <div class="warn" id="warn" role="status"></div>
+  </section>
+
+  <aside class="controls">
+    <h1>Lamination disc</h1>
+    <p class="sub">All dimensions in millimetres. Black / layer CUT is cut, red / layer ENGRAVE is engrave.</p>
+
+    <fieldset>
+      <legend>Ring</legend>
+      <div class="grid">
+        <label class="f">Outer diameter <input id="od" type="number" step="0.1" min="1" value="200"></label>
+        <label class="f">Bore diameter <input id="id" type="number" step="0.1" min="0" value="150"></label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Coil slots (bore edge)</legend>
+      <div class="grid">
+        <label class="f">Count <input id="n" type="number" step="1" min="0" value="64"></label>
+        <label class="f">Width <input id="sw" type="number" step="0.1" min="0" value="4.5"></label>
+        <label class="f">Depth <input id="sd" type="number" step="0.1" min="0" value="15"></label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Alignment tabs (outer rim)</legend>
+      <div class="grid">
+        <label class="f">Pairs <input id="pairs" type="number" step="1" min="0" value="0"></label>
+        <label class="f">Key gap <input id="gap" type="number" step="0.1" min="0" value="4"></label>
+        <label class="f">Tab width <input id="tabw" type="number" step="0.1" min="0" value="3"></label>
+        <label class="f">Tab height <input id="tabh" type="number" step="0.1" min="0" value="2"></label>
+        <label class="f">Snap web <input id="web" type="number" step="0.1" min="0" value="1"></label>
+      </div>
+      <label class="chk"><input id="datum" type="checkbox" checked> Engrave datum mark</label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Stack skew</legend>
+      <div class="grid">
+        <label class="f">Plates in stack <input id="plates" type="number" step="1" min="1" value="12"></label>
+        <label class="f">Skew per plate (°) <input id="skew" type="number" step="0.001" value="0.511"></label>
+      </div>
+      <div class="plate">
+        <span>Plate</span>
+        <input id="idx" type="range" min="0" max="11" value="0" aria-label="Plate index">
+        <output id="idxOut">0</output>
+      </div>
+      <button id="fitSkew" class="tiny">Set skew to one slot pitch across the stack</button>
+      <label class="chk"><input id="engrave" type="checkbox" checked> Engrave plate number</label>
+    </fieldset>
+
+    <div class="grid" style="margin-bottom:8px">
+      <label class="f">File format
+        <select id="fmt"><option value="svg">SVG</option><option value="dxf">DXF (R12)</option></select>
+      </label>
+    </div>
+    <div class="actions">
+      <button id="dlOne">Download this plate as SVG</button>
+      <button id="dlAll" class="secondary">Download whole stack as one SVG</button>
+    </div>
+    <p class="status" id="status" role="status"></p>
+    <p class="hint">Slot 0 stays at 0°. The datum mark and any tabs rotate by plate × skew, so stacking
+      every plate on its own datum gives the helical offset. With 0 pairs the engraved mark is the only
+      index, so align in a pin jig or by eye. The snap web is the material left holding each tab after
+      the root is scored — set it to 0 to keep the tabs on as housing keys.</p>
+  </aside>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const num = id => parseFloat($(id).value) || 0;
+const f4 = v => (+v.toFixed(4)).toString();
+const TAU = 2 * Math.PI;
+
+function readParams() {
+  return {
+    R: num('od') / 2, r: num('id') / 2,
+    n: Math.max(0, Math.round(num('n'))), sw: num('sw'), sd: num('sd'),
+    pairs: Math.max(0, Math.round(num('pairs'))), gap: num('gap'),
+    tabW: num('tabw'), tabH: num('tabh'), web: num('web'), datum: $('datum').checked,
+    plates: Math.max(1, Math.round(num('plates'))), skew: num('skew'),
+    idx: Math.round(num('idx')), engrave: $('engrave').checked,
+  };
+}
+
+// Circle of `radius` carrying a rectangular parallel-sided feature of `width`
+// centred on each angle in `angleDegs`, standing `depth` proud (dir +1) or cut
+// in (dir -1). Returns line/arc segments in mm, x right, y down (screen frame),
+// angles in radians increasing clockwise on screen.
+function ringProfile(radius, angleDegs, width, depth, dir) {
+  if (!angleDegs.length || width <= 0 || depth <= 0)
+    return [{ t: 'circle', r: radius }];
+  const h = Math.min(width / 2, radius * 0.999);
+  const xo = Math.sqrt(radius * radius - h * h);
+  const xb = radius + dir * depth;
+  const alpha = Math.asin(h / radius);
+  const rot = (x, y, t) => [x * Math.cos(t) - y * Math.sin(t), x * Math.sin(t) + y * Math.cos(t)];
+  const ts = angleDegs.map(a => ((a * Math.PI / 180) % TAU + TAU) % TAU).sort((a, b) => a - b);
+  const segs = [];
+  for (let i = 0; i < ts.length; i++) {
+    const t = ts[i];
+    const next = i + 1 < ts.length ? ts[i + 1] : ts[0] + TAU;
+    const a = rot(xo, -h, t), b = rot(xb, -h, t), c = rot(xb, h, t), d = rot(xo, h, t);
+    segs.push({ t: 'line', p: a, q: b }, { t: 'line', p: b, q: c }, { t: 'line', p: c, q: d });
+    segs.push({ t: 'arc', r: radius, a1: t + alpha, a2: next - alpha });
+  }
+  return segs;
+}
+
+const evenAngles = (count, offsetDeg) =>
+  Array.from({ length: count }, (_, i) => offsetDeg + i * 360 / count);
+
+// Each alignment feature is a PAIR of outward tabs straddling the datum angle;
+// the key rides in the gap between them, so the rim keeps full yoke section
+// instead of losing 20% of it to a notch. Tabs are radially oriented, so the
+// gap splays slightly outward — `gap` is the width at the rim.
+function tabAngles(p, datumDeg) {
+  if (p.pairs < 1 || p.tabW <= 0 || p.tabH <= 0 || p.R <= 0) return [];
+  const halfDeg = (p.gap + p.tabW) / 2 / p.R * 180 / Math.PI;
+  const out = [];
+  for (let i = 0; i < p.pairs; i++) {
+    const base = datumDeg + i * 360 / p.pairs;
+    out.push(base - halfDeg, base + halfDeg);
+  }
+  return out;
+}
+
+// A pair of cuts across each tab root, leaving `web` mm of material holding it
+// in the middle, so the tab snaps off by hand once the stack is bonded and
+// before it is wound. The cuts run along the root chord and meet the outline at
+// the tab corners. A web of 0, or one at least as wide as the tab, leaves the
+// root solid — for tabs meant to stay on as housing keys.
+function tabScores(p, datumDeg) {
+  const angles = tabAngles(p, datumDeg);
+  if (!angles.length || p.web <= 0 || p.web >= p.tabW) return [];
+  const h = Math.min(p.tabW / 2, p.R * 0.999);
+  const xo = Math.sqrt(p.R * p.R - h * h);
+  const w = p.web / 2;
+  const rot = (x, y, ang) => [x * Math.cos(ang) - y * Math.sin(ang), x * Math.sin(ang) + y * Math.cos(ang)];
+  return angles.flatMap(deg => {
+    const ang = deg * Math.PI / 180;
+    return [
+      { t: 'line', p: rot(xo, -h, ang), q: rot(xo, -w, ang) },
+      { t: 'line', p: rot(xo, w, ang), q: rot(xo, h, ang) },
+    ];
+  });
+}
+
+// The two closed outlines of a plate, plus any root scores. Coil slots sit on
+// the bore and are cut outward (teeth point inward); the rim carries the tabs.
+function plateOutlines(p, plateIndex) {
+  const angle = plateIndex * p.skew;
+  return {
+    angle,
+    rim: ringProfile(p.R, tabAngles(p, angle), p.tabW, p.tabH, +1),
+    bore: p.r > 0 ? ringProfile(p.r, evenAngles(p.n, 0), p.sw, p.sd, +1) : [],
+    scores: tabScores(p, angle),
+  };
+}
+
+// Engraved radial tick at the datum angle. Removes no material, so it costs
+// nothing magnetically — with 0 tab pairs it is the only index on the plate.
+function datumMark(p, plateIndex) {
+  const yoke = p.R - p.sd - p.r;
+  if (!p.datum || yoke <= 1) return null;
+  const a = plateIndex * p.skew * Math.PI / 180;
+  const r1 = p.r + p.sd + yoke * 0.2, r2 = p.r + p.sd + yoke * 0.8;
+  return { t: 'line', p: [r1 * Math.cos(a), r1 * Math.sin(a)], q: [r2 * Math.cos(a), r2 * Math.sin(a)] };
+}
+
+// Plate number, engraved in the yoke opposite the datum.
+function plateLabel(p, plateIndex) {
+  if (!p.engrave) return null;
+  const yoke = p.R - p.sd - p.r;
+  if (yoke <= 0) return null;
+  const angle = plateIndex * p.skew;
+  const rr = p.r + p.sd + yoke / 2, a = (angle + 180) * Math.PI / 180;
+  return {
+    t: 'text', layer: 'ENGRAVE', x: rr * Math.cos(a), y: rr * Math.sin(a),
+    h: Math.max(1, Math.min(8, yoke * 0.45)), rot: angle + 270, s: String(plateIndex),
+  };
+}
+
+// Plate as a flat list of primitives for DXF: {layer, ...}
+function platePrimitives(p, plateIndex) {
+  const { rim, bore, scores } = plateOutlines(p, plateIndex);
+  const out = [...rim, ...bore, ...scores].map(s => ({ ...s, layer: 'CUT' }));
+  const tick = datumMark(p, plateIndex);
+  if (tick) out.push({ ...tick, layer: 'ENGRAVE' });
+  const label = plateLabel(p, plateIndex);
+  if (label) out.push(label);
+  return out;
+}
+
+// On screen the outlines follow the theme; an exported file always carries the
+// laser convention — near-black CUT, red ENGRAVE — whatever the viewer's theme.
+function plateMarkup(p, plateIndex, { guides = false, preview = false } = {}) {
+  const { rim, bore, scores, angle } = plateOutlines(p, plateIndex);
+  const cutInk = preview ? 'var(--cut)' : '#0f1a2b';
+  const engraveInk = preview ? 'var(--engrave)' : '#d1291d';
+  const sk = preview
+    ? 'fill="none" stroke-width="1.1" vector-effect="non-scaling-stroke"'
+    : 'fill="none" stroke-width="0.1"';
+  let s = `<path d="${segsToPath(rim)}" stroke="${cutInk}" ${sk}/>`;
+  if (bore.length) s += `<path d="${segsToPath(bore)}" stroke="${cutInk}" ${sk}/>`;
+  for (const c of scores)
+    s += `<line x1="${f4(c.p[0])}" y1="${f4(c.p[1])}" x2="${f4(c.q[0])}" y2="${f4(c.q[1])}" stroke="${cutInk}" ${sk}/>`;
+  const tick = datumMark(p, plateIndex);
+  if (tick) s += `<line x1="${f4(tick.p[0])}" y1="${f4(tick.p[1])}" x2="${f4(tick.q[0])}" y2="${f4(tick.q[1])}"
+      stroke="${engraveInk}" ${sk}/>`;
+  const t = plateLabel(p, plateIndex);
+  if (t) s += `<text x="${f4(t.x)}" y="${f4(t.y)}" font-size="${f4(t.h)}" font-family="Arial, sans-serif"
+      text-anchor="middle" dominant-baseline="central" fill="${engraveInk}" transform="rotate(${t.rot.toFixed(2)} ${f4(t.x)} ${f4(t.y)})">${t.s}</text>`;
+  if (guides) {
+    const g = 'stroke="var(--guide)" stroke-width="1" stroke-dasharray="4 3" vector-effect="non-scaling-stroke"';
+    s += `<line x1="0" y1="0" x2="${p.R}" y2="0" ${g} opacity="0.35"/>`;
+    const a = angle * Math.PI / 180;
+    s += `<line x1="0" y1="0" x2="${f4(p.R * Math.cos(a))}" y2="${f4(p.R * Math.sin(a))}" ${g}/>`;
+    s += `<circle cx="0" cy="0" r="${f4(p.R * 0.008)}" fill="var(--guide)"/>`;
+  }
+  return s;
+}
+
+function segsToPath(segs) {
+  let d = '';
+  for (const s of segs) {
+    if (s.t === 'circle')
+      d += `M${f4(s.r)} 0A${f4(s.r)} ${f4(s.r)} 0 1 1 ${f4(-s.r)} 0A${f4(s.r)} ${f4(s.r)} 0 1 1 ${f4(s.r)} 0Z`;
+    else if (s.t === 'line')
+      d += `${d ? 'L' : 'M' + f4(s.p[0]) + ' ' + f4(s.p[1]) + 'L'}${f4(s.q[0])} ${f4(s.q[1])}`;
+    else {
+      const large = (s.a2 - s.a1) > Math.PI ? 1 : 0;
+      d += `A${f4(s.r)} ${f4(s.r)} 0 ${large} 1 ${f4(s.r * Math.cos(s.a2))} ${f4(s.r * Math.sin(s.a2))}`;
+    }
+  }
+  return d + (segs[0].t === 'circle' ? '' : 'Z');
+}
+
+function svgDoc(inner, w, h) {
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${w}mm" height="${h}mm" viewBox="0 0 ${w} ${h}">
+${inner}
+</svg>`;
+}
+
+// DXF R12 (AC1009), millimetres, y flipped to CAD convention (y up).
+function dxfDoc(items) { // items: [{prims, dx, dy}]
+  const L = [];
+  const g = (code, val) => L.push(code, val);
+  g(0, 'SECTION'); g(2, 'HEADER'); g(9, '$ACADVER'); g(1, 'AC1009'); g(9, '$INSUNITS'); g(70, 4); g(0, 'ENDSEC');
+  g(0, 'SECTION'); g(2, 'TABLES'); g(0, 'TABLE'); g(2, 'LAYER'); g(70, 2);
+  for (const [name, color] of [['CUT', 7], ['ENGRAVE', 1]]) { g(0, 'LAYER'); g(2, name); g(70, 0); g(62, color); g(6, 'CONTINUOUS'); }
+  g(0, 'ENDTAB'); g(0, 'ENDSEC');
+  g(0, 'SECTION'); g(2, 'ENTITIES');
+  const deg = r => ((r * 180 / Math.PI) % 360 + 360) % 360;
+  for (const { prims, dx, dy } of items) for (const s of prims) {
+    if (s.t === 'line') { g(0, 'LINE'); g(8, s.layer); g(10, f4(s.p[0] + dx)); g(20, f4(-(s.p[1] + dy))); g(11, f4(s.q[0] + dx)); g(21, f4(-(s.q[1] + dy))); }
+    else if (s.t === 'circle') { g(0, 'CIRCLE'); g(8, s.layer); g(10, f4(dx)); g(20, f4(-dy)); g(40, f4(s.r)); }
+    else if (s.t === 'arc') { g(0, 'ARC'); g(8, s.layer); g(10, f4(dx)); g(20, f4(-dy)); g(40, f4(s.r)); g(50, f4(deg(-s.a2))); g(51, f4(deg(-s.a1))); }
+    else if (s.t === 'text') { g(0, 'TEXT'); g(8, s.layer); g(10, f4(s.x + dx)); g(20, f4(-(s.y + dy))); g(40, f4(s.h)); g(1, s.s); g(50, f4(((-s.rot) % 360 + 360) % 360)); g(72, 1); g(73, 2); g(11, f4(s.x + dx)); g(21, f4(-(s.y + dy))); }
+  }
+  g(0, 'ENDSEC'); g(0, 'EOF');
+  return L.join('\n') + '\n';
+}
+
+// Geometry derived from the parameters, slot figures measured at the bore.
+function metrics(p) {
+  const pitch = p.n > 0 ? 2 * Math.PI * p.r / p.n : 0;
+  const halfSlot = p.r > 0 ? Math.min(1, p.sw / (2 * p.r)) : 1;
+  const tooth = p.n > 0 ? 2 * p.r * (Math.PI / p.n - Math.asin(halfSlot)) : 0;
+  return { pitch, tooth, yoke: p.R - p.sd - p.r, slotPitchDeg: p.n > 0 ? 360 / p.n : 0 };
+}
+
+// Smallest angular gap between consecutive features, in radians.
+function minSpacing(angleDegs) {
+  const ts = angleDegs.map(a => ((a * Math.PI / 180) % TAU + TAU) % TAU).sort((a, b) => a - b);
+  if (ts.length < 2) return TAU;
+  let min = TAU + ts[0] - ts[ts.length - 1];
+  for (let i = 1; i < ts.length; i++) min = Math.min(min, ts[i] - ts[i - 1]);
+  return min;
+}
+
+function validate(p) {
+  const m = metrics(p);
+  const msgs = [];
+  if (p.r >= p.R) msgs.push('Bore diameter must be smaller than outer diameter.');
+  if (p.r <= 0 && p.n > 0) msgs.push('Slots sit on the bore, so the bore diameter must be above zero.');
+  if (p.n > 0 && p.sw >= 2 * p.r) msgs.push('Slot width exceeds the bore diameter.');
+  if (p.n > 0 && m.tooth <= 0) msgs.push('Teeth have no width left: reduce slot count or slot width.');
+  if (m.yoke <= 0) msgs.push('Slot depth eats through the ring.');
+  if (p.pairs > 0) {
+    if (p.tabW <= 0 || p.tabH <= 0) msgs.push('Tabs need a width and a height above zero.');
+    else if (minSpacing(tabAngles(p, 0)) <= p.tabW / p.R)
+      msgs.push('Tabs overlap: reduce the pair count or tab width, or widen the key gap.');
+    else if (p.web > 0 && p.web >= p.tabW)
+      msgs.push('Snap web is at least as wide as the tab, so the root stays solid.');
+  }
+  return msgs;
+}
+
+function render() {
+  const p = readParams();
+  $('idx').max = p.plates - 1;
+  if (p.idx > p.plates - 1) { $('idx').value = p.plates - 1; p.idx = p.plates - 1; }
+  $('idxOut').value = p.idx;
+  $('warn').textContent = validate(p)[0] || '';
+
+  const reach = p.R + (p.pairs > 0 ? Math.max(0, p.tabH) : 0);
+  const m = reach * 0.02 + 1.5;   // only enough that the outer stroke cannot clip
+  const size = 2 * (reach + m);
+  $('svgHost').innerHTML =
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${-reach - m} ${-reach - m} ${size} ${size}">
+       ${plateMarkup(p, p.idx, { guides: true, preview: true })}</svg>`;
+
+  const g = metrics(p);
+  const twist = (p.plates - 1) * p.skew;
+  const inPitch = g.slotPitchDeg > 0 ? (twist / g.slotPitchDeg).toFixed(2) : '—';
+  $('readout').innerHTML =
+    `Plate <b>${p.idx}</b> of ${p.plates} &nbsp;·&nbsp; datum at <b>${(p.idx * p.skew).toFixed(2)}°</b> &nbsp;·&nbsp; ` +
+    `slot pitch <b>${g.pitch.toFixed(2)} mm</b> (${g.slotPitchDeg.toFixed(3)}°) &nbsp;·&nbsp; ` +
+    `tooth tip <b>${g.tooth.toFixed(2)} mm</b> &nbsp;·&nbsp; yoke <b>${g.yoke.toFixed(2)} mm</b><br>` +
+    `stack twist ${twist.toFixed(2)}° = ${inPitch} slot pitches` +
+    (p.pairs > 0
+      ? ` &nbsp;·&nbsp; ${p.pairs * 2} tabs, yoke full section, ` +
+        (p.web > 0 && p.web < p.tabW ? `${p.web.toFixed(1)} mm snap web` : 'solid roots')
+      : '');
+}
+
+/* ---- Saving: a plain blob link, which any static host allows. ---------- */
+
+let statusTimer;
+function status(text) {
+  const el = $('status');
+  el.textContent = text;
+  clearTimeout(statusTimer);
+  if (text) statusTimer = setTimeout(() => { el.textContent = ''; }, 8000);
+}
+
+function saveFile(filename, text, mime) {
+  const url = URL.createObjectURL(new Blob([text], { type: mime }));
+  const a = Object.assign(document.createElement('a'), { href: url, download: filename });
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  status(`Saved ${filename}`);
+}
+
+function exportPlates(indices, name) {
+  const p = readParams();
+  const fmt = $('fmt').value;
+  const reach = p.R + (p.pairs > 0 ? Math.max(0, p.tabH) : 0);
+  const gap = 3, cell = 2 * reach + gap;
+  const cols = Math.ceil(Math.sqrt(indices.length)), rows = Math.ceil(indices.length / cols);
+  const items = indices.map((idx, k) => ({
+    idx,
+    dx: (k % cols) * cell + reach + gap / 2,
+    dy: Math.floor(k / cols) * cell + reach + gap / 2,
+  }));
+  if (fmt === 'svg') {
+    const inner = items.map(it => `<g transform="translate(${f4(it.dx)} ${f4(it.dy)})">${plateMarkup(p, it.idx)}</g>`).join('\n');
+    saveFile(name + '.svg', svgDoc(inner, cols * cell, rows * cell), 'image/svg+xml');
+  } else {
+    saveFile(name + '.dxf', dxfDoc(items.map(it => ({ prims: platePrimitives(p, it.idx), dx: it.dx, dy: it.dy }))), 'application/dxf');
+  }
+}
+
+$('fitSkew').onclick = () => {
+  const p = readParams();
+  if (p.n < 1 || p.plates < 2) return;
+  $('skew').value = (360 / p.n / (p.plates - 1)).toFixed(3);
+  render();
+};
+
+$('dlOne').onclick = () => { const p = readParams(); exportPlates([p.idx], `disc_plate${String(p.idx).padStart(2, '0')}`); };
+$('dlAll').onclick = () => { const p = readParams(); exportPlates([...Array(p.plates).keys()], `disc_stack_${p.plates}x`); };
+$('fmt').addEventListener('change', () => {
+  const x = $('fmt').value.toUpperCase();
+  $('dlOne').textContent = `Download this plate as ${x}`;
+  $('dlAll').textContent = `Download whole stack as one ${x}`;
+});
+
+document.querySelectorAll('input').forEach(el => el.addEventListener('input', render));
+render();
+</script>
+</body>
+</html>
